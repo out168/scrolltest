@@ -1,0 +1,112 @@
+=================================================
+Fake double layered horizontal scroll in screen 4
+=================================================
+
+I guess this technique is known and perhaps has even been used in some project.  
+Anyway, i wish to share the source code of this little demo.
+
+Using the hardware horizontal scroll capabilites and some trickery, it is 
+possible to do a double layered scroll pixel by pixel in screen 4. Actually, 
+the front layer moves by 2 pixels, while the background layer moves by 1 pixel.
+
+The scroll is done every 1/15 seconds aproximately. In theory is possible to 
+update the screen every 1/60 seconds, although the results are not very 
+pleasing to look at (flickering). Perhaps if an alternative technique is used 
+(see the Extensions section), the scroll will also look good at 1/30 seconds.
+
+WARNING
+-------
+
+I have ran this on openmsx only. Don't know if there are too fast vdp access 
+problems.
+
+Requirements
+------------
+
+This code is designed for the V9958.
+16 kB of ram are assumed to be present on page 3 ($c000-$ffff).
+
+The "game" area is 32x20 tiles (Maze of Galious size). This leaves 4 tiles for 
+information.  Some sort of scroll split will be required (it is not implemented 
+in this example: the first four lines are black).
+
+Increase game area and you get screen flickering. Perhaps this side effect could 
+be reduced optimizing the source code.
+
+Tile trickery
+-------------
+
+The idea is simple.
+
+For this example i use 16 tiles arranged in a 4x4 square. I use only 2 colors 
+for the square to avoid color clash. However, two colors per horizontal 32 pixel 
+line are possible in this arrangement (i mean, background tiles having different 
+colors vertically).
+
+Please take into account that, in this case, each horizontal
+arrangement of tiles should have the same exact color: that is, for instance,
+$fe,$fe,$fe,$fe. If you use bmp2msx converter, some tiles may get the
+"wrong" $ef color. Beware of that! (for me, this was a cause of some headaches!)
+
+There is nothing particular about this 4x4 arrangement. Of course you can
+use any arrangement you like (4x8, 8x4, 6x6...), but take into account
+that the more tiles, the more memory will you need to store all the tiles.
+
+I generate 8 background tilesets (8x16=128 tiles), each one of them rotated one 
+pixel to the left of the other:  that's the reason of the two colors per 
+horizontal line restriction. In this example, i am restricted to two colors per 
+32 horizontal pixels. These tilesets are stored in RAM, addresses $c100 to $c4ff 
+(128 tiles x 8 bytes /tile = $400 bytes). Only the patters are rotated, the 
+colors need not to be rotated in this example.
+
+Let's consider scrolling to the left. The screen is horizontally scrolled by 
+setting the appropriate registers of V9958 that displace the screen by 2 pixels.  
+Each time the screen is scrolled, the background tileset gets substituted by the 
+the one corresponding to one pixel *right* rotated version of the actual 
+background tileset. By doing this, the background tiles will appear to be moved 
+one pixel to the left (2pixels to the left from hardware scroll + 1 pixel to the 
+right from "tile scroll" = 1 pixel to the left, while the foreground layer has 
+been moved 2 pixels to the left).
+
+Extensions
+----------
+
+Note that this can be used with V9938 if the hardware scroll is changed to a 
+"set adjust" scroll.
+
+If this technique is used for vertical scrolling, then the V9938 can handle it 
+as well, and furthermore the two color per line restriction does not apply: 
+background and foreground tiles share only the 2 color per 8 pixel constraint. 
+
+Note that for the vertical scolling case, the color data needs to be rotated and 
+stored also (doubling the memory requirements).
+
+On the other hand, given that the minimum VRAM of the V9938/V9958 is 128kB, and
+provided that you are ok with just 8 tilesets (and for a repetitive background
+configuration such as a repetition of a n times m tile block i think you are),
+you could store all the tilesets in the vram, and the "tile scroll" is just a
+change on the base address of the pattern generator and color tables.  This
+change involves a few out instructions i think. Furthermore, no RAM memory will
+be required to store the tilesets!
+
+On the current implementation, the "tile scroll" involves a transfer of
+128x3=384 bytes each time the screen is scrolled: 16 tiles x 8 bytes
+/tile=128 bytes, and multiplied by 3 because three tilesets compose a
+screen.
+
+Conclusions
+-----------
+
+I don't know if the operations that need to be performed are too heavy. I also 
+don't know if a game (say, a shoot'em'up) is possible using this technique. 
+
+If you want pixel perfect, double layer horizontal/vertical scrolling on MSX, 
+use the V9990!
+
+Perhaps, using this method, you can get triple or quadruple layer pixel scroll 
+with V9990.
+
+Contact
+-------
+
+username qilipalmer at the mail service of the searching company.

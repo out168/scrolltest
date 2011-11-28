@@ -1,0 +1,5 @@
+[objects]
+prom0.o
+
+[libraries]
+bank 0 slot 1 libv99x8.o

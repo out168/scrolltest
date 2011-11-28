@@ -1,0 +1,787 @@
+;========================================================================
+; PROM0
+; -----------------------------------------------------------------------
+; Test of double layer smooth horizontal scroll.
+; MSX2+ or superior, as hardware horizontal scroll is used.
+;========================================================================
+.INCLUDE "bioswla.z80"
+
+;========================================================================
+; MSX memory layout
+;========================================================================
+.MEMORYMAP
+    DEFAULTSLOT 1
+    ; ROM area
+    SLOTSIZE $4000
+    SLOT 0 $0000
+    SLOT 1 $4000
+    SLOT 2 $8000
+    ; RAM area (MSX2 comes with 64K minimum)
+    SLOT 3 $c000
+.ENDME
+
+;========================================================================
+; This rom memory layout
+; One entire bank of 16 Kb
+;========================================================================
+.ROMBANKMAP
+    BANKSTOTAL 1
+    BANKSIZE $4000
+    BANKS 1
+.ENDRO
+
+;========================================================================
+; Constants
+;========================================================================
+
+.EQU screen 0c800h
+.EQU back_layer 0cb00h
+
+;========================================================================
+; RAM variables
+;========================================================================
+.RAMSECTION "Vars" SLOT 3
+    tick: DB 
+    sec_elapsed: DB
+    min_elapsed: DB
+    hour_elapsed: DB
+    xscroll: DB ; pixel that goes to x=8 (first pixel if borders are masked)
+    xcol: DB
+    tilex: DB
+.ENDS
+
+;========================================================================
+; Empty fill: free bytes are filled with this value
+;========================================================================
+.EMPTYFILL $FF
+
+;========================================================================
+; ROM Header
+;========================================================================
+.BANK 0 
+.ORG 0 ; with respect to .rom file
+
+.SECTION "bankheader" FORCE
+    .DB "AB"
+    .DW start
+.ENDS
+
+;========================================================================
+; Code
+; -----------------------------------------------------------------------
+; Slot: refers to memory
+; Bank: refers to ROM (that is, the .rom output file)
+; As the section is declared as FREE, this section's code
+; will be placed immediately after the bankheader section,
+; ignoring the .ORGA directive.
+;========================================================================
+.BANK 0 SLOT 1
+.ORGA $4010
+
+.SECTION "program" FREE
+.BLOCK "Main"
+
+    start:
+        ld a,04h
+        call chgmod
+
+        xor a
+        call backdrop_color
+
+        xor a
+        ld de,0
+        ld hl,patterns
+        ld bc,800h
+        call Ram2Vram
+
+        xor a
+        ld de,$800
+        ld hl,patterns
+        ld bc,$800
+        call Ram2Vram
+
+        xor a
+        ld de,$1000
+        ld hl,patterns
+        ld bc,$800
+        call Ram2Vram
+
+        xor a
+        ld de,$2000
+        ld hl,colors
+        ld bc,$800
+        call Ram2Vram
+
+        xor a
+        ld de,$2800
+        ld hl,colors
+        ld bc,$800
+        call Ram2Vram
+
+        xor a
+        ld de,$3000
+        ld hl,colors
+        ld bc,$800
+        call Ram2Vram
+
+        ld hl,palette
+        call init_palette
+
+        ; clear screen area
+        ld hl,$c800
+        ld (hl),$1
+        ld de,$c801
+        ld bc,$600
+        ldir
+       
+
+        ld de,back_layer
+        ld hl,background_base
+        ld bc,300h
+        ldir
+        call compose_screen
+        call update_screen
+
+        call set_hscroll_mask
+        call rot_tileset
+
+        ld a,1
+        ld (tilex),a
+
+    mainloop:
+        call wait_vblank
+        call tictac
+        ld c,3
+        call scroll_left
+
+        jp mainloop
+.ENDB
+.ENDS    
+
+.SECTION "Sync" FREE
+.BLOCK "Sync"
+
+    ; ********************************************************************************
+    ; update time elapsed and tick
+    ; --------------------------------------------------------------------------------
+    ; modify: A, HL
+    ; ********************************************************************************
+    tictac:
+        ld hl,tick
+        ld a,(hl)
+        inc a
+        ld (hl),a
+        cp 60
+        ; once every 1/60 sec?
+        ; depends on the video freq.?
+        ; openmsx on windows seem to be at 50hz
+        ; while openmsx in linux seem to be at 60hz ?????
+        ret c
+        ; 1 second elapsed
+        xor a
+        ld (hl),a
+        ld hl,sec_elapsed
+        ld a,(hl)
+        inc a
+        ;add a,1
+        daa
+        ld (hl),a
+        cp $60
+        ret c
+        xor a
+        ld (hl),a
+        inc hl ; point to min_elapsed
+        ld a,(hl)
+        inc a
+        daa
+        ld (hl),a
+        cp $60 ; if min>60, update hour
+        ret c
+        xor a
+        ld (hl),a
+        inc hl ; points to hour_elapsed
+        ld a,(hl)
+        inc a
+        daa
+        ld (hl),a
+        ret
+.ENDB
+.ENDS
+
+.SECTION "Graphics" FREE
+.BLOCK "Graphics"
+
+    ; ********************************************************************************
+    ; scrolls the screen to the left
+    ; note that the disp_bckgrnd function should be consistent with the scroll direction!
+    ; --------------------------------------------------------------------------------
+    ; C = skip frames: 1 -> skip 1 out of 2 frames
+    ;                  3 -> skip 3 out of 4 frames
+    ;                  ... etc
+    ;                  0 -> skip 0 frames
+    ; --------------------------------------------------------------------------------
+    ; modify: A, BC, DE
+    ; ********************************************************************************
+    scroll_left:
+
+        ; if have to skip this frame, return
+        ld a,(tick)
+        and c
+        ret nz
+
+        ; select the correct rotated tileset
+        ; tileset is rotated to the right: if the screen is moved 2 pix to the left,
+        ; and the tile is rotated 1pix to the right, the final apparent movement
+        ; of the tile is 1pix to the left!
+        ld a,(tilex)
+        dec a ; backgrnd ->OK
+        and 7
+        ld (tilex),a
+        cp 7 ; backgrnd -> OK
+        call z,disp_bckgrnd
+
+        ; calculate the hl init direction from the tilex vaule.
+        ; (tilex,init_dir) : (0,$c100),(1,$c180),(2,$c200),...
+        ; tilex is a number between 0 and 7 (inclusive).
+        ; so we have hl=$80*tilex+$c100
+        ld h,a
+        srl h
+        ld l,0
+        rr l
+        ld de,$c100
+        add hl,de
+        call rotate_tile
+
+        ; hardware scroll the whole screen to the left
+        ld a,(xscroll)
+        add a,2 ; scroll speed ; or inc a to scroll one pixel
+        ld (xscroll),a
+        call set_hscroll
+        ret
+
+
+    ; ********************************************************************************
+    ; same as above, but to the right
+    ; note that the disp_bckgrnd function should be consistent with the scroll direction!
+    ; ********************************************************************************
+    scroll_right:
+
+        ; if have to skip this frame, return
+        ld a,(tick)
+        and c
+        ret nz
+
+        ; select the correct rotated tileset
+        ; this time tileset is rotated to the left.
+        ld a,(tilex)
+        inc a ; backgrnd <-OK
+        and 7
+        ld (tilex),a
+        cp 0 ; backgrnd <- OK
+        call z,disp_bckgrnd
+
+        ; calculate the hl init direction from the tilex vaule.
+        ; (tilex,init_dir) : (0,$c100),(1,$c180),(2,$c200),...
+        ; tilex is a number between 0 and 7 (inclusive).
+        ; so we have hl=$80*tilex+$c100
+        ld h,a
+        srl h
+        ld l,0
+        rr l
+        ld de,$c100
+        add hl,de
+        call rotate_tile
+
+        ; hardware scroll the whole screen to the right
+        ld a,(xscroll)
+        sub 2 ; scroll speed
+        ld (xscroll),a
+        call set_hscroll
+        ret
+
+
+    ; ********************************************************************************
+    ; prepares the rotated tileset
+    ; this is a preprocessing that is executed only once
+    ; of course other ways to rotate the tilesets are possible!
+    ; note that the color data is not rotated; it must be the same for within
+    ; every horizontal line of the 4 tiles.
+    ; each line can have its own colors.
+    ; ********************************************************************************
+    rot_tileset:
+        ; copy data from vram
+        xor a
+        ld de,300h ; first bg tileset
+        ld hl,0c100h
+        call vr32
+        xor a
+        ld de,320h
+        call vr32
+        xor a
+        ld de,340h
+        call vr32
+        xor a
+        ld de,360h
+        call vr32
+
+        ; 1 pix rotated
+        ; prepare a ram copy
+        ; ram locations 256 byte aligned
+        ld hl,0c100h
+        ld de,0c180h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c180h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c1a0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c1c0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c1e0h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 2 pix rotated
+        ld hl,0c180h
+        ld de,0c200h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c200h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c220h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c240h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c260h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 3 pix rotated
+        ld hl,0c200h
+        ld de,0c280h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c280h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c2a0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c2c0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c2e0h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 4 pix rotated
+        ld hl,0c280h
+        ld de,0c300h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c300h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c320h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c340h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c360h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 5 pix rotated
+        ld hl,0c300h
+        ld de,0c380h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c380h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c3a0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c3c0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c3e0h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 6 pix rotated
+        ld hl,0c380h
+        ld de,0c400h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c400h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c420h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c440h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c460h
+-       call rotate_line
+        inc l
+        djnz -
+
+        ; 7 pix rotated
+        ld hl,0c400h
+        ld de,0c480h
+        ld bc,80h
+        ldir
+        ; rotate this vram copy
+        ld b,8
+        ld hl,0c480h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c4a0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c4c0h
+-       call rotate_line
+        inc l
+        djnz -
+        ld b,8
+        ld hl,0c4e0h
+-       call rotate_line
+        inc l
+        djnz -
+        ret
+
+    ; ********************************************************************************
+    ; this function is called only on the preprocessing stage.
+    ; it rotates one line of four tiles to the left.
+    ; this is because i use a 4x4 tile background graphic that is repeated all over the place.
+    ; each line has, in this case, 32 pixels to be rotated. for instance, this line
+    ;  x00x0xxx00x0x0x0x0000x0x0x0x0x00 
+    ; will become
+    ;  00x0xxx00x0x0x0x0000x0x0x0x0x00x 
+    ; ********************************************************************************
+    rotate_line:
+        push hl
+        pop ix
+        ld a,(hl)
+        rla ; to get carry right
+        ld a,(ix+18h)
+        rla
+        ld (ix+18h),a
+        ld a,(ix+10h)
+        rla
+        ld (ix+10h),a
+        ld a,(ix+8h)
+        rla
+        ld (ix+8h),a
+        ld a,(hl)
+        rla
+        ld (hl),a
+        ret
+
+    ; ********************************************************************************
+    ; called every time the screen is scrolled
+    ; copy the previously calculated rotated tileset, stored at $c100-$c4ff,
+    ; to the pattern generator table.
+    ; which tileset to copy is decided from the tilex variable.
+    ; in this case, the patterns that "rotate" are from $60 to $6f.
+    ; note that $60*8=$300, and $300+$800=$b00, and $b00+$800=$1300.
+    ; here, $800 is the length of the pattern table.
+    ; there are 3 pattern generator tables, one for each third of the screen.
+    ; ********************************************************************************
+    rotate_tile:
+        push hl
+        xor a
+        ld de,$300
+        call rv32
+        xor a
+        ld de,$320
+        call rv32
+        xor a
+        ld de,$340
+        call rv32
+        xor a
+        ld de,$360
+        call rv32
+        xor a
+        ld de,$b00
+        pop hl
+        push hl
+        call rv32
+        xor a
+        ld de,$b20
+        call rv32
+        xor a
+        ld de,$b40
+        call rv32
+        xor a
+        ld de,$b60
+        call rv32
+        xor a
+        ld de,$1300
+        pop hl
+        call rv32
+        xor a
+        ld de,$1320
+        call rv32
+        xor a
+        ld de,$1340
+        call rv32
+        xor a
+        ld de,$1360
+        call rv32
+        ret
+
+    
+    ; ********************************************************************************
+    ; superimposes front + background layers
+    ; should be called once in every 8pix scroll
+    ; this function generates the correct composition of tiles: the tiles different 
+    ; of 0 are taken from the front, while the tiles equal to 0 on the front layer
+    ; are replaced by the tiles of the background layer.
+    ; ********************************************************************************
+    compose_screen:
+        ld de,screen+$80
+        ld hl,back_layer+32*4
+        ld bc,$280 ; 300h -> fullscreen, or $300 - $20*numblanklines
+        ldir
+        ld de,screen+$80
+        ld hl,front_layer+32*4
+        ld bc,$280
+
+        @put:
+        ld a,(hl)
+        or a
+        jr z,@nx
+        ldi
+        jr @end
+        
+        @nx:
+        inc hl
+        inc de
+        dec bc
+        
+        @end:
+        ld a,b
+        or c
+        ret z
+        jr @put
+
+    ; ********************************************************************************
+    ; move background tiles
+    ; when a background tile has gone trhough 8 tile rotations, the background should
+    ; be displaced entirely one block (8pix) to the same direction where the screen 
+    ; is flowing.
+    ; the best is to comment the call to this function to see what i mean.
+    ; the background scroll jumps each 8 pixels and is moving on average at the same
+    ; speed as the foreground!
+    ; note that this code works because the background tiles are arranged in a way 
+    ; that only the 2 least significant bits of the tile pattern have to be changed.
+    ; for instance, consider the group $60,$61,$62,$63: to scroll to the left,
+    ; this function just needs to produce the result $61,$62,$63,$60; this is easily
+    ; accomplished by incrementing the last 2 bits (inc a, and 3).
+    ; to scroll to the right, just dec a, and 3.
+    ; ********************************************************************************
+    disp_bckgrnd:
+        push af
+        ;ld a,0 ; backgrnd <-
+        ;ld a,8 ; backgrnd ->
+        ;ld (tilex),a
+        ld hl,back_layer+$80
+        ld bc,$280 ; 300h -> ok
+        @cont:
+        ld a,(hl)
+        ld e,a
+        and 0fch
+        ld d,a
+        ld a,e
+        ;inc a ; consistent with scroll_right
+        dec a ; consistent with scroll_left
+        and 3
+        or d
+        ld (hl),a
+        dec bc
+        ld a,b
+        or c
+        inc hl
+        jr nz,@cont
+        call compose_screen
+        call update_screen
+        pop af
+        ret
+
+    ; ********************************************************************************
+    ; dumps the tiles from ram (screen) to vdp
+    ; ********************************************************************************
+    update_screen:
+        ld a,0
+        ld de,$1800 ; 1800h -> fullscreen
+        ld bc,$300 ; 300h -> fullscreen
+        ld hl,screen
+        call Ram2Vram
+        ret
+
+.ENDB
+.ENDS
+
+.ORGA $6000
+.SECTION "GraphicData" SEMIFREE
+.BLOCK "GraphicData"
+
+patterns:
+.INCBIN "tiles_def2.sc4" SKIP $7 READ $800 ; tile pattern
+
+colors:
+.INCBIN "tiles_def2.sc4" SKIP $2007 READ $800 ; tile colors
+
+palette:
+.INCBIN "tiles_def.pal" READ $20 ; palette
+
+
+front_layer:
+.DB $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+.DB $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+.DB $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+.DB $01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01,$01
+;start here
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$4c,$75,$76,$4a,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$43,$45,$00,$00,$00,$00
+.DB $00,$00,$40,$41,$40,$41,$40,$41,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$42,$45,$00,$00,$00,$00
+.DB $00,$00,$4c,$70,$71,$72,$73,$4b,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$43,$44,$00,$00,$00,$00
+.DB $00,$00,$00,$4c,$75,$76,$77,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$43,$45,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$4c,$7a,$4b,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$42,$44,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$56,$57,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$43,$45,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$58,$59,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$54,$43,$80,$51,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$4e,$40,$41,$40,$41,$40,$41,$5a,$5b,$00,$00,$00,$00,$40,$41,$40,$41,$40,$41,$40,$41,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$43,$70,$71,$72,$73,$70,$4b,$5c,$5d,$00,$00,$00,$00,$43,$74,$75,$76,$77,$74,$75,$76,$77
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$42,$74,$75,$76,$77,$74,$00,$5c,$5d,$00,$00,$00,$00,$42,$78,$79,$7a,$7b,$78,$79,$7a,$7b
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$54,$7b,$78,$79,$7a,$7b,$4b,$00,$5c,$5d,$00,$00,$00,$00,$42,$7c,$7d,$7e,$7f,$7c,$7d,$7e,$7f
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$42,$7f,$7c,$7d,$7e,$7f,$00,$00,$5c,$5d,$00,$00,$00,$00,$43,$70,$71,$72,$73,$70,$71,$72,$73
+.DB $00,$00,$00,$56,$57,$00,$00,$00,$00,$43,$73,$70,$71,$72,$4b,$00,$00,$5c,$5d,$00,$00,$00,$00,$42,$74,$75,$76,$77,$74,$75,$76,$77
+.DB $00,$00,$00,$58,$59,$00,$00,$00,$4e,$76,$77,$81,$82,$83,$00,$00,$00,$5c,$5d,$00,$00,$00,$00,$43,$78,$79,$7a,$7b,$78,$79,$7a,$7b
+.DB $40,$41,$40,$41,$40,$41,$40,$41,$40,$41,$40,$41,$40,$41,$00,$00,$00,$5c,$5d,$00,$00,$00,$00,$42,$7c,$7d,$7e,$7f,$7c,$7d,$7e,$7f
+.DB $46,$47,$46,$84,$85,$47,$46,$47,$46,$47,$46,$47,$4a,$00,$00,$00,$00,$5c,$5d,$00,$00,$00,$00,$43,$70,$71,$72,$73,$70,$71,$72,$73
+.DB $48,$49,$48,$84,$85,$49,$48,$49,$48,$49,$48,$49,$00,$00,$00,$00,$00,$5c,$5d,$00,$00,$00,$00,$43,$74,$75,$76,$77,$74,$75,$76,$77
+.DB $46,$47,$46,$84,$85,$47,$46,$47,$46,$47,$46,$4a,$00,$00,$00,$00,$00,$5c,$5d,$00,$00,$00,$00,$43,$80,$83,$81,$82,$78,$81,$82,$7b
+.DB $48,$49,$48,$84,$85,$49,$48,$49,$48,$49,$4b,$00,$00,$00,$00,$00,$00,$5c,$5d,$00,$00,$00,$41,$40,$41,$40,$41,$40,$41,$40,$41,$40
+.DB $46,$47,$46,$84,$85,$47,$46,$47,$46,$47,$00,$00,$00,$00,$00,$00,$00,$5c,$5d,$00,$00,$00,$46,$47,$46,$47,$46,$47,$46,$47,$46,$47
+.DB $48,$49,$48,$84,$85,$49,$48,$49,$48,$4a,$00,$00,$00,$00,$00,$00,$00,$5c,$5d,$00,$40,$41,$48,$49,$48,$49,$48,$49,$48,$49,$48,$49
+.DB $46,$47,$46,$84,$85,$47,$46,$47,$4b,$00,$00,$00,$00,$00,$00,$00,$00,$5c,$5d,$00,$46,$47,$46,$47,$46,$47,$46,$47,$46,$47,$46,$47
+.DB $48,$49,$48,$84,$85,$49,$48,$49,$00,$00,$00,$00,$00,$00,$00,$00,$00,$5c,$5d,$00,$48,$49,$48,$49,$48,$49,$48,$49,$48,$49,$48,$49
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
+background_base:
+;.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+;.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+;.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+;.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+;start here
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+.DB $60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63,$60,$61,$62,$63
+.DB $64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67,$64,$65,$66,$67
+.DB $68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b,$68,$69,$6a,$6b
+.DB $6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f,$6c,$6d,$6e,$6f
+; 
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+.DB $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+
+.ENDB
+.ENDS
+
+
+
+
+

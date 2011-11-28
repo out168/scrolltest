@@ -1,0 +1,368 @@
+;========================================================================
+; Select the .BANK and .SLOT on which the code of the library
+; has to be relocated on the linking file.
+;========================================================================
+
+;========================================================================
+; Functions for the V99x8.
+;========================================================================
+
+.INCLUDE "v99x8include.z80"
+
+; Initialization.
+; Transfer RAM -> VRAM.
+; Syncronization.
+; Sprites.
+
+;========================================================================
+; Macros
+;========================================================================
+
+;========================================================================
+; Code sections
+;========================================================================
+
+.SECTION "Initialization" FREE
+.BLOCK "v99x8_init"
+
+    ; ********************************************************************************
+    ; backdrop color
+    ; a: backdrop color 0-15
+    ; modify: A,C
+    ; ********************************************************************************
+    backdrop_color:
+        ld c,v99x8p1
+        and 0fh
+        out (c),a
+        ld a,7+128
+        out (c),a
+        ret
+
+    ; ********************************************************************************
+    ; initializes the palette
+    ; modify: A,BC
+    ; input: HL address of palette
+    ; in the correct order for v99x8.
+    ; 0.r2.r1.r0.0.b2.b1.b0, 0.0.0.0.0.g2.g1.g0
+    ; palette number to reg. 16
+    ; two outs to port2 consisting on the above data
+    ; ********************************************************************************
+    init_palette:
+        ld c,v99x8p1
+        xor a
+        out (c),a
+        ld a,16+128
+        out (c),a
+        ld c,v99x8p2
+        ld b,20h
+        otir
+        ret
+
+.ENDB
+.ENDS
+
+.SECTION "SynchronizationV99x8" FREE
+.BLOCK "SynchronizationV99x8"
+
+    ; ********************************************************************************
+    ; wait till the next start of vertical nondisplay
+    ; sometimes a frame is lost (??)
+    ; modify: A
+    ; ********************************************************************************
+    wait_vsync:
+        ret
+
+    ; ********************************************************************************
+    ; assumes that b6 of in(status port) is 1 while displaying lines x-x+212
+    ; when b6 changes to 1, vblank period starts
+    ; modify: A
+    ; ********************************************************************************
+    wait_vblank:
+        ; we need to read s#2
+        ; first, wait till VR (s#2.b6) is zero (screen is drawn)
+        ; then wait till VR changes to 1 (vblank start)
+        ; the initial loop is done in order to make sure that this
+        ; routine returns at the start of an vblank and not in the middle
+        ld c,v99x8p1
+    @l0:
+        ld a,2
+        out (c),a
+        ld a,15+128
+        out (c),a
+        in a,(c)
+        and 40h
+        jr nz,@l0
+    @l1:
+        ld a,2
+        out (c),a
+        ld a,15+128
+        out (c),a
+        in a,(c)
+        and 40h
+        jr z,@l1
+        ret
+
+    ; ********************************************************************************
+    ; wait till vblank ends
+    ; modify: A
+    ; ********************************************************************************
+    wait_vstart:
+        ret
+
+.ENDB
+.ENDS
+
+.SECTION "Transfer" FREE
+.BLOCK "v99x8_transfer"
+    ; ********************************************************************************
+    ; HL: ram address
+    ; ADE: vram address -> 00000h to 1ffffh
+    ; A: bits 0.0.0.0.0.b16.b15.b14
+    ; D: bits 0.0.b13.b12.b11.b10.b9.b8
+    ; E: lower 8 bits 
+    ; BC: #bytes
+    ; modifies: A,HL,BC
+    ; does not change the value of A in the VRAM address, beware!
+    ; write a in reg. 14
+    ; write e to port 1
+    ; write d to port 1 indicating that we are writing (bit 6 of d)
+    ; write data from (HL) to port 0
+    ; ********************************************************************************
+    Ram2Vram:
+        di ; v99x8 manual suggestion
+        push bc
+        set 6,d 
+        ld c,v99x8p1
+        out (c),a
+        ld a,14+128
+        out (c),a
+        out (c),e
+        out (c),d
+
+        pop bc
+        ; init loop
+        ; b=0 -> no loop for b
+        ld a,b
+        or a
+        jp z,loop2
+        
+        push bc
+
+        ld c,v99x8p0
+        ; 256 loops for each b
+    loop:
+        ld a,b
+        ld b,0
+        otir
+        ld b,a
+        djnz loop
+
+        pop bc
+        ; if c==0 return
+    loop2:
+        ld a,c
+        or a
+        ret z
+        ; if c!=0 a last otir is required
+        ld b,c
+        ld c,v99x8p0
+        otir
+        ei
+        ret
+
+    ; ********************************************************************************
+    ; less than 257 bytes
+    ; HL: RAM address
+    ; ADE: VRAM address
+    ; B: #bytes
+    ; modifies: A,HL,BC
+    ; does not change the value of A in the VRAM address, beware!
+    ; ********************************************************************************
+    rvshrt:
+        ret
+
+    ; ********************************************************************************
+    ; less than 257 bytes
+    ; HL: RAM address
+    ; ADE: VRAM address
+    ; B: #bytes
+    ; modifies: A,HL,BC
+    ; does not change the value of A in the VRAM address, beware!
+    ; ********************************************************************************
+    rvshrt2:
+        ret
+
+    vr32:
+    ; ********************************************************************************
+    ; HL: ram address
+    ; ADE: vram address -> 00000h to 1ffffh
+    ; A: bits 0.0.0.0.0.b16.b15.b14
+    ; D: bits 0.0.b13.b12.b11.b10.b9.b8
+    ; E: lower 8 bits 
+    ; reading only 32 bytes
+    ; modifies: A,HL,BC
+    ; does not change the value of A in the VRAM address, beware!
+    ; write a in reg. 14
+    ; write e to port 1
+    ; write d to port 1 indicating that we are reading (bit 6 of d)
+    ; read data from port 0 to (HL)
+    ; ********************************************************************************
+        di ; v99x8 manual suggestion
+        push bc
+        res 6,d ; this routine reads from vram
+        ld c,v99x8p1
+        out (c),a
+        ld a,14+128
+        out (c),a
+        out (c),e
+        out (c),d
+        ld c,v99x8p0
+        .REPEAT 32
+        ini
+        ;nop
+        .ENDR
+
+        pop bc
+        ret
+
+    rv32:
+    ; ********************************************************************************
+    ; HL: ram address
+    ; ADE: vram address -> 00000h to 1ffffh
+    ; A: bits 0.0.0.0.0.b16.b15.b14
+    ; D: bits 0.0.b13.b12.b11.b10.b9.b8
+    ; E: lower 8 bits 
+    ; writing only 32 bytes
+    ; modifies: A,HL,BC
+    ; does not change the value of A in the VRAM address, beware!
+    ; write a in reg. 14
+    ; write e to port 1
+    ; write d to port 1 indicating that we are writing (bit 6 of d)
+    ; write (HL) to port 0
+    ; ********************************************************************************
+        di ; v99x8 manual suggestion
+        push bc
+        set 6,d ; this routine reads from vram
+        ld c,v99x8p1
+        out (c),a
+        ld a,14+128
+        out (c),a
+        out (c),e
+        out (c),d
+        ld c,v99x8p0
+        .REPEAT 32
+        outi
+        ;nop
+        .ENDR
+
+        pop bc
+        ;ei ; warning!!!!
+        ret
+
+.ENDB
+.ENDS
+
+.SECTION "Sprites" FREE
+
+    ; ********************************************************************************
+    ; puts sprites with attributes stored in RAM
+    ; HL: RAM address
+    ; B: # of sprites x 4
+    ; modifies A,BC,DE,HL
+    ; ********************************************************************************
+    PutSprites:
+        ret
+
+    ; ********************************************************************************
+    ; Disables all sprites by setting PR1 bit of the sprite attribute
+    ; and resetting all the remaining bits
+    ; modifies: A,BC,DE,HL
+    ; ********************************************************************************
+    DisableAllSprites:
+        ret
+
+.ENDS
+
+.SECTION "Scroll" FREE
+.BLOCK "Scroll"
+
+    ; ********************************************************************************
+    ; mask the 8 pixels at left edge
+    ; for a better looking horizontal hardware scroll
+    ; --------------------------------------------------------------------------------
+    ; modifies: A,C,E
+    ; ********************************************************************************
+    set_hscroll_mask:
+        ld c,v99x8p1
+        ld a,12h
+        ld e,25+128
+        out (c),a
+        out (c),e
+        ret
+
+    ; ********************************************************************************
+    ; sets the value given in A to the leftmost part of the screen.
+    ; these are pixel (8,y) for any y, since the leftmost 8 pixels,
+    ; from 0 to 7, are masked.
+    ;
+    ; horizontal scroll is controled by registers 26 and 27.
+    ; the appropriate values are computed for the value in A.
+    ; this value is a byte (that is, ranging from 0 to 255)
+    ; --------------------------------------------------------------------------------
+    ; A = x coordinate of the pixel to set at (8,0)
+    ; --------------------------------------------------------------------------------
+    ; modify: A, BC, DE
+    ; ********************************************************************************
+    set_hscroll:
+        ld de,9a9bh ; regs 26 and 27, +128
+        ld c,v99x8p1
+        ld b,a
+        srl b
+        srl b
+        srl b
+        push af
+        and 7h
+        jr nz,+
+        dec b
++       out (c),b
+        out (c),d
+        pop af
+        and 7h
+        sub 8
+        neg
+        and 7h
+        out (c),a
+        out (c),e
+        ret
+
+.ENDB
+.ENDS
+
+;========================================================================
+; Data sections
+;========================================================================
+
+; Palette data
+.SECTION "DefaultData" FREE
+
+    DefaultPData:
+        .DB 00h,00h
+        .DB 00h,00h
+        .DB 11h,06h
+        .DB 33h,07h
+        .DB 17h,01h
+        .DB 27h,03h
+        .DB 51h,01h
+        .DB 27h,06h
+        .DB 71h,01h
+        .DB 73h,03h
+        .DB 61h,06h
+        .DB 64h,06h
+        .DB 11h,04h
+        .DB 65h,02h
+        .DB 55h,05h
+        .DB 77h,07h
+
+.ENDS
+
+

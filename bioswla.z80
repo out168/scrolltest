@@ -1,0 +1,236 @@
+; ==============================
+; ========================================
+; Standard BIOS calls and names
+;
+; Subroutine names from the MSX Red Book
+; Variable names from the MSX Red Book
+; ========================================
+
+.EQU chkram $0000 ;Power-up, check RAM 02D7H 
+
+.EQU synchr $0008 ;Check BASIC program character 2683H 
+
+.EQU rdslt  $000C ;Read RAM in any slot 01B6H 
+
+.EQU chrgtr $0010 ;Get next BASIC program character 2686H 
+
+.EQU wrslt  $0014 ;Write to RAM in any slot 01D1H 
+
+.EQU outdo  $0018 ;Output to current device 1B45H 
+
+.EQU calslt $001C ;Call routine in any slot 0217H 
+
+.EQU dcompr $0020 ;Compare register pairs HL and DE 146AH 
+
+.EQU enaslt $0024 ;Enable any slot permanently 025EH 
+
+.EQU getypr $0028 ;Get BASIC operand type 2689H 
+
+.EQU callf  $0030 ;Call routine in any slot 0205H 
+
+.EQU keyint $0038 ;Interrupt handler, keyboard scan 0C3CH 
+
+.EQU initio $003B ;Initialize I/O devices 049DH 
+
+.EQU inifnk $003E ;Initialize function key strings 139DH 
+
+.EQU disscr $0041 ;Disable screen 0577H 
+
+.EQU enascr $0044 ;Enable screen 0570H 
+
+.EQU wrtvdp $0047 ;Write to any VDP register 057FH 
+
+.EQU rdvrm  $004A ;Read byte from VRAM 07D7H 
+
+.EQU wrtvrm $004D ;Write byte to VRAM 07CDH 
+; in hl=direction, a=data
+
+.EQU setrd  $0050 ;Set up VDP for read 07ECH 
+
+.EQU setwrt $0053 ;Set up VDP for write 07DFH 
+
+.EQU filvrm $0056 ;Fill block of VRAM with data byte 0815H 
+
+.EQU ldirmv $0059 ;Copy block to memory from VRAM 070FH 
+
+.EQU ldirvm $005C ;Copy block to VRAM, from memory 0744H 
+
+.EQU chgmod $005F ;Change VDP mode 084FH 
+; in a=screen mode 0..8
+
+.EQU chgclr $0062 ;Change VDP colours 07F7H 
+; in forclr,bakclr,brdclr
+
+.EQU nmi    $0066 ;Non Maskable Interrupt handler 1398H 
+
+.EQU clrspr $0069 ;Clear all sprites 06A8H 
+
+.EQU initxt $006C ;Initialize VDP to 4$24 Text Mode 050EH 
+
+.EQU init32 $006F ;Initialize VDP to 32x24 Text Mode 0538H 
+
+.EQU inigrp $0072 ;Initialize VDP to Graphics Mode 05D2H 
+
+.EQU inimlt $0075 ;Initialize VDP to Multicolour Mode 061FH 
+
+.EQU settxt $0078 ;Set VDP to 4$24 Text Mode 0594H 
+
+.EQU sett32 $007B ;Set VDP to 32x24 Text Mode 05B4H 
+
+.EQU setgrp $007E ;Set VDP to Graphics Mode 0602H 
+
+.EQU setmlt $0081 ;Set VDP to Multicolour Mode 0659H 
+
+.EQU calpat $0084 ;Calculate address of sprite pattern 06E4H 
+
+.EQU calatr $0087 ;Calculate address of sprite attribute 06F9H 
+
+.EQU gspsiz $008A ;Get sprite size 0704H 
+
+.EQU grpprt $008D ;Print character on graphic screen 1510H 
+
+.EQU gicini $0090 ;Initialize PSG (GI Chip) 04BDH 
+
+.EQU wrtpsg $0093 ;Write to any PSG register 1102H 
+
+.EQU rdpsg  $0096 ;Read from any PSG register 110EH 
+
+.EQU strtms $0099 ;Start music dequeueing 11C4H 
+
+.EQU chsns  $009C ;Sense keyboard buffer for character 0D6AH 
+
+.EQU chget  $009F ;Get character from keyboard buffer (wait) 10CBH 
+
+.EQU chput  $00A2 ;Screen character output 08BCH 
+
+.EQU lptout $00A5 ;Line printer character output 085DH 
+
+.EQU lptstt $00A8 ;Line printer status test 0884H 
+
+.EQU cnvchr $00AB ;Convert character with graphic header 089DH 
+
+.EQU pinlin $00AE ;Get line from console (editor) 23BFH 
+
+.EQU inlin  $00B1 ;Get line from console (editor) 23D5H 
+
+.EQU qinlin $00B4 ;Display "?", get line from console (editor) 23CCH 
+
+.EQU breakx $00B7 ;Check CTRL-STOP key directly 046FH 
+
+.EQU iscntc $00BA ;Check CRTL-STOP key 03FBH 
+
+.EQU ckcntc $00BD ;Check CTRL-STOP key 10F9H 
+
+.EQU beep   $00C0 ;Go beep 1113H 
+
+.EQU cls    $00C3 ;Clear screen 0848H 
+
+.EQU posit  $00C6 ;Set cursor position 088EH 
+
+.EQU fnksb  $00C9 ;Check if function key display on 0B26H 
+
+.EQU erafnk $00CC ;Erase function key display 0B15H 
+
+.EQU dspfnk $00CF ;Display function keys 0B2BH 
+
+.EQU totext $00D2 ;Return VDP to text mode 083BH 
+
+.EQU gtstck $00D5 ;Get joystick status 11EEH 
+
+.EQU gttrig $00D8 ;Get trigger status 1253H 
+
+.EQU gtpad  $00DB ;Get touch pad status 12ACH 
+
+.EQU gtpdl  $00DE ;Get paddle status 1273H 
+
+.EQU tapion $00E1 ;Tape input ON 1A63H 
+
+.EQU tapin  $00E4 ;Tape input 1ABCH 
+
+.EQU tapiof $00E7 ;Tape input OFF 19E9H 
+
+.EQU tapoon $00EA ;Tape output ON 19F1H 
+
+.EQU tapout $00ED ;Tape output 1A19H 
+
+.EQU tapoof $00F0 ;Tape output OFF 19DDH 
+
+.EQU stmotr $00F3 ;Turn motor ON/OFF 1384H 
+
+.EQU lftq   $00F6 ;Space left in music queue 14EBH 
+
+.EQU putq   $00F9 ;Put byte in music queue 1492H 
+
+.EQU rightc $00FC ;Move current pixel physical address right 16C5H 
+
+.EQU leftc  $00FF ;Move current pixel physical address left 16EEH 
+
+.EQU upc    $0102 ;Move current pixel physical address up 175DH 
+
+.EQU tupc   $0105 ;Test then UPC if legal 173CH 
+
+.EQU downc  $0108 ;Move current pixel physical address down 172AH 
+
+.EQU tdownc $010B ;Test then DOWNC if legal 170AH 
+
+.EQU scalxy $010E ;Scale graphics coordinates 1599H 
+
+.EQU mapxyc $0111 ;Map graphic coordinates to physical address 15DFH 
+
+.EQU fetchc $0114 ;Fetch current pixel physical address 1639H 
+
+.EQU storec $0117 ;Store current pixel physical address 1640H 
+
+.EQU setatr $011A ;Set attribute byte 1676H 
+
+.EQU readc  $011D ;Read attribute of current pixel 1647H 
+
+.EQU setc   $0120 ;Set attribute of current pixel 167EH 
+
+.EQU nsetcx $0123 ;Set attribute of number of pixels 1809H 
+
+.EQU gtaspc $0126 ;Get aspect ratio 18C7H 
+
+.EQU pntini $0129 ;Paint initialize 18CFH 
+
+.EQU scanr  $012C ;Scan pixels to right 18E4H 
+
+.EQU scanl  $012F ;Scan pixels to left 197AH 
+
+.EQU chgcap $0132 ;Change Caps Lock LED 0F3DH 
+
+.EQU chgsnd $0135 ;Change Key Click sound output 0F7AH 
+
+.EQU rslreg $0138 ;Read Primary Slot Register 144CH 
+
+.EQU wslreg $013B ;Write to Primary Slot Register 144FH 
+
+.EQU rdvdp  $013E ;Read VDP Status Register 1449H 
+
+.EQU snsmat $0141 ;Read row of keyboard matrix 1452H 
+
+.EQU phydio $0144 ;Disk, no action 148AH 
+
+.EQU format $0147 ;Disk, no action 148EH 
+
+.EQU isflio $014A ;Check for file I/O 145FH 
+
+.EQU outdlp $014D ;Formatted output to line printer 1B63H 
+
+.EQU getvcp $0150 ;Get music voice pointer 1470H 
+
+.EQU getvc2 $0153 ;Get music voice pointer 1474H 
+
+.EQU kilbuf $0156 ;Clear keyboard buffer 0468H 
+
+.EQU calbas $0159 ;Call to BASIC from any slot 01FFH 
+
+; ==============================
+; Memory variables
+; ==============================
+
+.EQU forclr $f3e9 ; foreground color
+.EQU bakclr $f3ea ; background color
+.EQU brdclr $f3ea ; border color (screen 1 only)
+.EQU exptbl $fcc1 ; expanded slots table
+.EQU slttbl $fcc5 ; subslots for each slot and page
