@@ -1,0 +1,151 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Smooth double layered scroll for screen 4 and MSX2+  by out168</title>
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+    <script src="javascripts/respond.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <!--[if lt IE 8]>
+    <link rel="stylesheet" href="stylesheets/ie.css">
+    <![endif]-->
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+
+  </head>
+  <body>
+      <div id="header">
+        <nav>
+          <li class="fork"><a href="https://github.com/out168/scrolltest">View On GitHub</a></li>
+          <li class="downloads"><a href="https://github.com/out168/scrolltest/zipball/master">ZIP</a></li>
+          <li class="downloads"><a href="https://github.com/out168/scrolltest/tarball/master">TAR</a></li>
+          <li class="title">DOWNLOADS</li>
+        </nav>
+      </div><!-- end header -->
+
+    <div class="wrapper">
+
+      <section>
+        <div id="title">
+          <h1>Smooth double layered scroll for screen 4 and MSX2+ </h1>
+          <p></p>
+          <hr>
+          <span class="credits left">Project maintained by <a href="https://github.com/out168">out168</a></span>
+          <span class="credits right">Hosted on GitHub Pages &mdash; Theme by <a href="http://twitter.com/#!/michigangraham">mattgraham</a></span>
+        </div>
+
+        <h1>Fake double layered horizontal scroll in screen 4</h1>
+
+<p>I guess this technique is known and perhaps has even been used in some project.<br>
+Anyway, i wish to share the source code of this little demo.</p>
+
+<p>Using the hardware horizontal scroll capabilites and some trickery, it is 
+possible to do a double layered scroll pixel by pixel in screen 4. Actually, 
+the front layer moves by 2 pixels, while the background layer moves by 1 pixel.</p>
+
+<p>The scroll is done every 1/15 seconds aproximately. In theory is possible to 
+update the screen every 1/60 seconds, although the results are not very 
+pleasing to look at (flickering). Perhaps if an alternative technique is used 
+(see the Extensions section), the scroll will also look good at 1/30 seconds.</p>
+
+<h3>WARNING</h3>
+
+<p>I have ran this on openmsx only. Don't know if there are too fast vdp access 
+problems.</p>
+
+<h3>Requirements</h3>
+
+<p>This code is designed for the V9958.
+16 kB of ram are assumed to be present on page 3 ($c000-$ffff).</p>
+
+<p>The "game" area is 32x20 tiles (Maze of Galious size). This leaves 4 tiles for 
+information.  Some sort of scroll split will be required (it is not implemented 
+in this example: the first four lines are black).</p>
+
+<p>Increase game area and you get screen flickering. Perhaps this side effect could 
+be reduced optimizing the source code.</p>
+
+<h3>Tile trickery</h3>
+
+<p>The idea is simple.</p>
+
+<p>For this example i use 16 tiles arranged in a 4x4 square. I use only 2 colors 
+for the square to avoid color clash. However, two colors per horizontal 32 pixel 
+line are possible in this arrangement (i mean, background tiles having different 
+colors vertically).</p>
+
+<p>Please take into account that, in this case, each horizontal
+arrangement of tiles should have the same exact color: that is, for instance,
+$fe,$fe,$fe,$fe. If you use bmp2msx converter, some tiles may get the
+"wrong" $ef color. Beware of that! (for me, this was a cause of some headaches!)</p>
+
+<p>There is nothing particular about this 4x4 arrangement. Of course you can
+use any arrangement you like (4x8, 8x4, 6x6...), but take into account
+that the more tiles, the more memory will you need to store all the tiles.</p>
+
+<p>I generate 8 background tilesets (8x16=128 tiles), each one of them rotated one 
+pixel to the left of the other:  that's the reason of the two colors per 
+horizontal line restriction. In this example, i am restricted to two colors per 
+32 horizontal pixels. These tilesets are stored in RAM, addresses $c100 to $c4ff 
+(128 tiles x 8 bytes /tile = $400 bytes). Only the patters are rotated, the 
+colors need not to be rotated in this example.</p>
+
+<p>Let's consider scrolling to the left. The screen is horizontally scrolled by 
+setting the appropriate registers of V9958 that displace the screen by 2 pixels.<br>
+Each time the screen is scrolled, the background tileset gets substituted by the 
+the one corresponding to one pixel <em>right</em> rotated version of the actual 
+background tileset. By doing this, the background tiles will appear to be moved 
+one pixel to the left (2pixels to the left from hardware scroll + 1 pixel to the 
+right from "tile scroll" = 1 pixel to the left, while the foreground layer has 
+been moved 2 pixels to the left).</p>
+
+<h3>Extensions</h3>
+
+<p>Note that this can be used with V9938 if the hardware scroll is changed to a 
+"set adjust" scroll.</p>
+
+<p>If this technique is used for vertical scrolling, then the V9938 can handle it 
+as well, and furthermore the two color per line restriction does not apply: 
+background and foreground tiles share only the 2 color per 8 pixel constraint. </p>
+
+<p>Note that for the vertical scolling case, the color data needs to be rotated and 
+stored also (doubling the memory requirements).</p>
+
+<p>On the other hand, given that the minimum VRAM of the V9938/V9958 is 128kB, and
+provided that you are ok with just 8 tilesets (and for a repetitive background
+configuration such as a repetition of a n times m tile block i think you are),
+you could store all the tilesets in the vram, and the "tile scroll" is just a
+change on the base address of the pattern generator and color tables.  This
+change involves a few out instructions i think. Furthermore, no RAM memory will
+be required to store the tilesets!</p>
+
+<p>On the current implementation, the "tile scroll" involves a transfer of
+128x3=384 bytes each time the screen is scrolled: 16 tiles x 8 bytes
+/tile=128 bytes, and multiplied by 3 because three tilesets compose a
+screen.</p>
+
+<h3>Conclusions</h3>
+
+<p>I don't know if the operations that need to be performed are too heavy. I also 
+don't know if a game (say, a shoot'em'up) is possible using this technique. </p>
+
+<p>If you want pixel perfect, double layer horizontal/vertical scrolling on MSX, 
+use the V9990!</p>
+
+<p>Perhaps, using this method, you can get triple or quadruple layer pixel scroll 
+with V9990.</p>
+
+<h3>Contact</h3>
+
+<p>username qilipalmer at the mail service of the searching company.</p>
+      </section>
+
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><!--<![endif]-->
+    
+  </body>
+</html>
